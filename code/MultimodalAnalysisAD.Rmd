@@ -1,0 +1,800 @@
+---
+title: "MultimodalAnalysis_ADdatasets"
+author: "DG"
+date: "2026-04-17"
+output: html_document
+---
+MULTIMODAL ANALYSIS
+
+Proteomics (Unwin group datasets)
+•	EC dataset (AD vs control, 9 samples per group) 
+•	HIP dataset (AD vs control, 6 samples per group) 
+•	IDs = UniProt 
+•	Working ID = SYMBOL 
+
+RNA microarray 
+•	GSE5281 dataset (AD vs control)
+•	Multiple brain regions(EC, HIP, MTG, PC, SFG, VCX)
+•	IDs = PROBEID (Affymetrix)
+•	Utilised EC and HIP datasets to match proteomic data
+•	Working ID = SYMBOL 
+
+“Gene symbols were used as a common identifier, acknowledging potential ambiguity due to gene name aliases.”
+---
+## 1. Convert both datasets to common IDs
+library(org.Hs.eg.db)
+
+library(clusterProfiler)
+
+library(dplyr)
+
+##Read datasets
+ec_map <- bitr(ec_sig$protein,
+               fromType = "UNIPROT",
+               toType   = "SYMBOL",
+               OrgDb    = org.Hs.eg.db)
+
+hip_map <- bitr(hip_sig$protein,
+                fromType = "UNIPROT",
+                toType   = "SYMBOL",
+                OrgDb    = org.Hs.eg.db)
+
+rna_ec <- read.csv("limma_EC_annotated.csv")
+
+rna_hip <- read.csv("limma_HIP_annotated.csv")
+
+## Study column format 
+colnames(ec_sig)
+
+colnames(ec_map)
+
+colnames(hip_sig)
+
+colnames(hip_map)
+
+## Convert to ubiquitous format
+#EC dataset
+colnames(ec_sig)[colnames(ec_sig) == "uniprot"] <- "UNIPROT"
+
+ec_merged <- merge(ec_sig, ec_map, by = "UNIPROT")
+
+ec_merged %>%
++     group_by(SYMBOL) %>%
++     summarise(logFC = mean(logFC), .groups = "drop")
+
+ec_multi <- inner_join(ec_merged, rna_ec, by = "SYMBOL")
+
+#HIP dataset
+colnames(hip_sig)[colnames(hip_sig) == "uniprot"] <- "UNIPROT"
+
+hip_merged <- merge(hip_sig, hip_map, by = "UNIPROT")
+
+hip_merged %>%
++     group_by(SYMBOL) %>%
++     summarise(logFC = mean(logFC), .groups = "drop")
+
+hip_multi <- inner_join(hip_merged, rna_hip, by = "SYMBOL")
+
+## QC check - ensure proper database formation
+nrow(ec_multi)
+
+nrow(hip_multi)
+
+# result 
+nrow(ec_multi)
+#[1] 0
+nrow(hip_multi)
+#[1] 0
+
+# This means that merging failed totally and needs to be re-done (probably due to naming differences, e.g. tp53, Tp53, TP53)
+
+## Start merging again
+
+#Inspect both SYMBOL columns
+head(ec_merged$SYMBOL)
+
+head(rna_ec$SYMBOL)
+
+rownames(ec_sig)[1:10]
+#[1] "1"  "2"  "3"  "4"  "5"  "6"  "7"  "8"  "9"  "10"
+
+colnames(ec_sig)
+
+#[1] "UNIPROT"     "LOGFC"       "AVEEXPR"     "T"           "P.VALUE"    
+#[6] "ADJ.P.VAL"   "B"           "SIGNIFICANT" "CATEGORY"
+
+rownames(hip_sig)[1:10]
+
+colnames(hip_sig)
+
+#Use correct column name
+
+ec_ids <- ec_sig$UNIPROT
+hip_ids <- hip_sig$UNIPROT
+
+#QC check IDs
+
+head(ec_ids)
+
+# outputs is this: [1] "Q96EQ0" "P02743" "P27338" "P17302" "Q13228" "P02763", which is perfect
+
+head(hip_ids)
+
+#Mapping
+
+library(clusterProfiler)
+library(org.Hs.eg.db)
+
+ec_map <- bitr(ec_ids,
+               fromType = "UNIPROT",
+               toType   = "SYMBOL",
+               OrgDb    = org.Hs.eg.db)
+
+library(clusterProfiler)
+library(org.Hs.eg.db)
+
+hip_map <- bitr(hip_ids,
+               fromType = "UNIPROT",
+               toType   = "SYMBOL",
+               OrgDb    = org.Hs.eg.db)
+
+#Run QC check
+
+nrow(ec_map)
+head(ec_map)
+
+nrow(hip_map)
+head(hip_map)
+
+#Step 4 — Merge correctly
+ec_merged <- dplyr::inner_join(
+  ec_sig,
+  ec_map,
+  by = c("UNIPROT" = "UNIPROT")
+)
+
+hip_merged <- dplyr::inner_join(
+  hip_sig,
+  hip_map,
+  by = c("UNIPROT" = "UNIPROT")
+)
+
+#Run QC check
+nrow(ec_merged)
+head(ec_merged$SYMBOL)
+
+nrow(hip_merged)
+head(hip_merged$SYMBOL)
+
+nrow(ec_sig)
+#[1] 301
+nrow(ec_merged)
+#[1] 296
+nrow(ec_multi)
+#[1] 0
+
+nrow(hip_sig)
+#[1] 52
+nrow(hip_merged)
+#[1] 53
+nrow(hip_multi)
+#[1] 0
+
+#We get adequate raw DE values and mapping is working, therefore the problem is RNA-protein mapping (SYMBOL mismatch)
+
+## Start merging again 2
+
+# Identify failure point
+length(intersect(ec_merged$SYMBOL, rna_ec$SYMBOL))
+
+length(intersect(hip_merged$SYMBOL, rna_hip$SYMBOL))
+
+# Inspect SYMBOL formats in the different files
+head(ec_merged$SYMBOL, 20)
+
+head(rna_ec$SYMBOL, 20)
+
+head(hip_merged$SYMBOL, 20)
+
+head(rna_hip$SYMBOL, 20)
+
+# Force standarization (before merging)
+
+ec_merged$SYMBOL <- toupper(trimws(ec_merged$SYMBOL))
+rna_ec$SYMBOL    <- toupper(trimws(rna_ec$SYMBOL))
+
+hip_merged$SYMBOL <- toupper(trimws(hip_merged$SYMBOL))
+rna_hip$SYMBOL    <- toupper(trimws(rna_hip$SYMBOL))
+
+# Check overlap
+
+length(intersect(ec_merged$SYMBOL, rna_ec$SYMBOL))
+
+length(intersect(hip_merged$SYMBOL, rna_hip$SYMBOL))
+
+# Merging
+ec_multi <- dplyr::inner_join(
+  ec_merged,
+  rna_ec,
+  by = "SYMBOL"
+)
+
+hip_multi <- dplyr::inner_join(
+  hip_merged,
+  rna_hip,
+  by = "SYMBOL"
+)
+
+# Inspect Merging Success
+nrow(ec_multi)
+head(ec_multi)
+
+nrow(hip_multi)
+head(hip_multi)
+
+#Merging and integration worked
+
+## 2. Convert both datasets to common IDs
+# 2.1. Inspect column labels
+
+colnames(ec_multi)
+
+# [1] "UNIPROT"     "LOGFC"       "AVEEXPR"     "T"           "P.VALUE"    
+# [6] "ADJ.P.VAL"   "B.x"         "SIGNIFICANT" "CATEGORY"    "SYMBOL"     
+#[11] "X"           "logFC"       "AveExpr"     "t"           "P.Value"    
+#[16] "adj.P.Val"   "B.y"         "ENTREZID"    "GENENAME"  
+#Current column label format:
+#•	LOGFC → protein logFC 
+#•	logFC → RNA logFC
+
+colnames(hip_multi)
+
+# [1] "UNIPROT"     "logFC.x"     "AveExpr.x"   "t.x"         "P.Value.x"  
+# [6] "adj.P.Val.x" "B.x"         "significant" "category"    "SYMBOL"     
+#[11] "X"           "logFC.y"     "AveExpr.y"   "t.y"         "P.Value.y"  
+#[16] "adj.P.Val.y" "B.y"         "ENTREZID"    "GENENAME"   
+#Current column label format:
+#•	logFC.x → protein logFC 
+#•	logFC.y → RNA logFC
+
+# 2.2. Standarize naming (column labels)
+ec_multi <- ec_multi %>%
+  dplyr::rename(
+    logFC_protein = LOGFC,
+    logFC_rna     = logFC
+  )
+
+hip_multi <- hip_multi %>%
+  dplyr::rename(
+    logFC_protein = logFC.x,
+    logFC_rna     = logFC.y
+
+# QC check - Confirm alignment
+colnames(ec_multi)
+
+colnames(hip_multi)
+
+# 2.3. Perform concordance classification
+
+ec_multi$status <- ifelse(
+  sign(ec_multi$logFC_rna) == sign(ec_multi$logFC_protein),
+  "Concordant",
+  "Discordant"
+)
+
+hip_multi$status <- ifelse(
+  sign(hip_multi$logFC_rna) == sign(hip_multi$logFC_protein),
+  "Concordant",
+  "Discordant"
+)
+
+# QC check 
+
+table(ec_multi$status)
+#Concordant Discordant 
+#       191         95
+
+table(hip_multi$status)
+#Concordant Discordant 
+#       28         24
+
+# 2.4. Save merged datasets
+#RDS files
+saveRDS(ec_multi, file = "ec_multi.rds")
+
+saveRDS(hip_multi, file = "hip_multi.rds")
+
+#To reload later
+ec_multi <- readRDS("ec_multi.rds")
+hip_multi <- readRDS("hip_multi.rds")
+
+#CSV files
+write.csv(ec_multi, "ec_multi.csv", row.names = FALSE)
+write.csv(hip_multi, "hip_multi.csv", row.names = FALSE)
+
+# An additional QC check before visualizations
+dim(ec_multi)
+#[1] 286  20
+
+dim(hip_multi)
+#[1] 52 20
+
+head(ec_multi$SYMBOL)
+#[1] "SGTB"     "APCS"     "MAOB"     "GJA1"     "SELENBP1" "ORM1"    
+
+head(hip_multi$SYMBOL)
+#[1] "HSPB6"  "S100A6" "PGAM2"  "AHNAK"  "AQP4"   "ICAM1" 
+
+## 3. Visualizations
+
+# 3.1. Scatter Plots
+
+#EC scatter
+
+library(ggplot2)
+
+p1 <- ggplot(ec_multi, aes(logFC_rna, logFC_protein)) +
+  geom_point(alpha = 0.7, size = 2) +
+  geom_vline(xintercept = 0, linetype = "dashed") +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  theme_minimal() +
+  labs(title = "EC: RNA vs Protein",
+       x = "RNA logFC",
+       y = "Protein logFC")
+
+#HIP scatter
+
+p2 <- ggplot(hip_multi, aes(logFC_rna, logFC_protein)) +
+  geom_point(alpha = 0.7, size = 2) +
+  geom_vline(xintercept = 0, linetype = "dashed") +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  theme_minimal() +
+  labs(title = "HIP: RNA vs Protein",
+       x = "RNA logFC",
+       y = "Protein logFC")
+
+# Combine into single panel
+
+library(gridExtra)
+
+grid.arrange(p1, p2, ncol = 2)
+
+# Create concordance variable (EC example)
+ec_multi$concordance <- ifelse(
+  sign(ec_multi$logFC_rna) == sign(ec_multi$logFC_protein),
+  "Concordant",
+  "Discordant"
+)
+
+#improved EC concordance plot 
+library(ggplot2)
+
+p1 <- ggplot(ec_multi, aes(
+  x = logFC_rna,
+  y = logFC_protein,
+  color = concordance
+)) +
+  geom_point(size = 2.5, alpha = 0.8) +
+  
+  # reference lines
+  geom_vline(xintercept = 0, linetype = "dashed", linewidth = 0.4) +
+  geom_hline(yintercept = 0, linetype = "dashed", linewidth = 0.4) +
+  
+  # styling
+  scale_color_manual(values = c(
+    "Concordant" = "#2C7BB6",
+    "Discordant" = "#D7191C"
+  )) +
+  
+  theme_minimal(base_size = 14) +
+  
+  labs(
+    title = "EC: AD vs Control RNA–Protein Concordance",
+    x = "RNA logFC (AD vs Control)",
+    y = "Protein logFC (AD vs Control)",
+    color = "Concordance"
+
+  )
+
+#improved HIP concordance plot 
+hip_multi$concordance <- ifelse(
+  sign(hip_multi$logFC_rna) == sign(hip_multi$logFC_protein),
+  "Concordant",
+  "Discordant"
+)
+
+p2 <- ggplot(hip_multi, aes(
+  x = logFC_rna,
+  y = logFC_protein,
+  color = concordance
+)) +
+  geom_point(size = 2.5, alpha = 0.8) +
+  
+  geom_vline(xintercept = 0, linetype = "dashed", linewidth = 0.4) +
+  geom_hline(yintercept = 0, linetype = "dashed", linewidth = 0.4) +
+  
+  scale_color_manual(values = c(
+    "Concordant" = "#2C7BB6",
+    "Discordant" = "#D7191C"
+  )) +
+  
+  theme_minimal(base_size = 14) +
+  
+  labs(
+    title = "HIP: AD vs Control RNA–Protein Concordance",
+    x = "RNA logFC (AD vs Control)",
+    y = "Protein logFC (AD vs Control)",
+    color = "Concordance"
+  )
+
+# combined panel
+library(gridExtra)
+
+grid.arrange(p1, p2, ncol = 2)
+
+```{r, echo=FALSE}
+# This converts your local image into a Base64 string and displays it
+# No external path will be needed after the HTML is generated
+img_data <- knitr::image_uri("/Users/mirandapestrofa/Downloads/MultimodalAnalysisAD/MultimodalFiles/MultimodalAnalysis_ConcordancePlots.png")
+```
+<img src="`r img_data`" style="width:70%; display:block; margin:auto;" />
+
+# 2.5. Define overlapping genes
+
+overlap_genes <- ec_multi$SYMBOL
+overlap_genes
+
+#compute correlation
+r_ec <- cor(ec_multi$logFC_rna,
+            ec_multi$logFC_protein,
+            use = "complete.obs")
+
+# improved EC plot with labels and correlation
+library(ggplot2)
+library(ggrepel)
+
+p1 <- ggplot(ec_multi, aes(
+  x = logFC_rna,
+  y = logFC_protein,
+  color = concordance
+)) +
+  
+  geom_point(size = 2.5, alpha = 0.8) +
+  
+  # highlight zero lines
+  geom_vline(xintercept = 0, linetype = "dashed", linewidth = 0.4) +
+  geom_hline(yintercept = 0, linetype = "dashed", linewidth = 0.4) +
+
+# label overlapping genes
+  geom_text_repel(
+    data = subset(ec_multi, SYMBOL %in% overlap_genes),
+    aes(label = SYMBOL),
+    size = 3,
+    max.overlaps = Inf
+  ) +
+  
+  # manual colors
+  scale_color_manual(values = c(
+    "Concordant" = "#2C7BB6",
+    "Discordant" = "#D7191C"
+  )) +
+  
+  theme_minimal(base_size = 14) +
+  
+  labs(
+    title = "EC: RNA vs Protein (AD vs Control)",
+    subtitle = paste0("Pearson r = ", round(r_ec, 2)),
+    x = "RNA logFC (AD vs Control)",
+    y = "Protein logFC (AD vs Control)",
+    color = "Concordance"
+  )
+
+# improved HIP plot with labels and correlation
+r_hip <- cor(hip_multi$logFC_rna,
+             hip_multi$logFC_protein,
+             use = "complete.obs")
+
+p2 <- ggplot(hip_multi, aes(
+  x = logFC_rna,
+  y = logFC_protein,
+  color = concordance
+)) +
+  
+  geom_point(size = 2.5, alpha = 0.8) +
+  
+  geom_vline(xintercept = 0, linetype = "dashed", linewidth = 0.4) +
+  geom_hline(yintercept = 0, linetype = "dashed", linewidth = 0.4) +
+  
+  geom_text_repel(
+    data = subset(hip_multi, SYMBOL %in% overlap_genes),
+    aes(label = SYMBOL),
+    size = 3,
+    max.overlaps = Inf
+  ) +
+  
+  scale_color_manual(values = c(
+    "Concordant" = "#2C7BB6",
+    "Discordant" = "#D7191C"
+  )) +
+  
+  theme_minimal(base_size = 14) +
+  
+  labs(
+    title = "HIP: RNA vs Protein (AD vs Control)",
+    subtitle = paste0("Pearson r = ", round(r_hip, 2)),
+    x = "RNA logFC (AD vs Control)",
+    y = "Protein logFC (AD vs Control)",
+    color = "Concordance"
+  )
+
+# Combine plots into single figure
+library(gridExtra)
+
+grid.arrange(p1, p2, ncol = 2)
+
+```{r, echo=FALSE}
+# This converts your local image into a Base64 string and displays it
+# No external path will be needed after the HTML is generated
+img_data1 <- knitr::image_uri("/Users/mirandapestrofa/Downloads/MultimodalAnalysisAD/MultimodalFiles/MultimodalAnalysis_annotatedConcordancePlot.png")
+```
+<img src="`r img_data1`" style="width:70%; display:block; margin:auto;" />
+
+## 2.6. Quadrant plot 
+
+###The plot splits genes into 4 biological classes:
+#•	↑RNA / ↑Protein (true activation) 
+#•	↓RNA / ↓Protein (true repression) 
+#•	↑RNA / ↓Protein (post-transcriptional repression) 
+#•	↓RNA / ↑Protein (compensatory regulation) 
+###
+
+ec_multi$quadrant <- with(ec_multi,
+  ifelse(logFC_rna > 0 & logFC_protein > 0, "Up-Up",
+  ifelse(logFC_rna < 0 & logFC_protein < 0, "Down-Down",
+  ifelse(logFC_rna > 0 & logFC_protein < 0, "RNA↑ Protein↓",
+         "RNA↓ Protein↑")))
+)
+
+ggplot(ec_multi, aes(logFC_rna, logFC_protein, color = quadrant)) +
+  geom_point(size = 2.5) +
+  geom_vline(xintercept = 0, linetype="dashed") +
+  geom_hline(yintercept = 0, linetype="dashed") +
+  theme_minimal()
+
+# EC Quadrant Plot
+```{r, echo=FALSE}
+# This converts your local image into a Base64 string and displays it
+# No external path will be needed after the HTML is generated
+img_data2 <- knitr::image_uri("/Users/mirandapestrofa/Downloads/MultimodalAnalysisAD/MultimodalFiles/Quadrant_EC_plot.png")
+```
+<img src="`r img_data2`" style="width:70%; display:block; margin:auto;" />
+
+
+hip_multi$quadrant <- with(hip_multi,
+  ifelse(logFC_rna > 0 & logFC_protein > 0, "Up-Up",
+  ifelse(logFC_rna < 0 & logFC_protein < 0, "Down-Down",
+  ifelse(logFC_rna > 0 & logFC_protein < 0, "RNA↑ Protein↓",
+         "RNA↓ Protein↑")))
+)
+
+ggplot(hip_multi, aes(logFC_rna, logFC_protein, color = quadrant)) +
+  geom_point(size = 2.5) +
+  geom_vline(xintercept = 0, linetype="dashed") +
+  geom_hline(yintercept = 0, linetype="dashed") +
+  theme_minimal()
+  
+# HIP Quadrant Plot  
+```{r, echo=FALSE}
+# This converts your local image into a Base64 string and displays it
+# No external path will be needed after the HTML is generated
+img_data3 <- knitr::image_uri("/Users/mirandapestrofa/Downloads/MultimodalAnalysisAD/MultimodalFiles/Quadrant_Hip_plot.png")
+```
+<img src="`r img_data3`" style="width:70%; display:block; margin:auto;" />
+
+# Density/Distribution comparison (RNA vs protein)
+library(tidyr)
+
+df_long <- ec_multi %>%
+  select(logFC_rna, logFC_protein) %>%
+  pivot_longer(cols = everything(),
+               names_to = "type",
+               values_to = "logFC")
+
+ggplot(df_long, aes(logFC, fill = type)) +
+  geom_density(alpha = 0.4) +
+  theme_minimal()
+
+
+library(tidyr)
+
+df_long <- hip_multi %>%
+  select(logFC_rna, logFC_protein) %>%
+  pivot_longer(cols = everything(),
+               names_to = "type",
+               values_to = "logFC")
+
+ggplot(df_long, aes(logFC, fill = type)) +
+  geom_density(alpha = 0.4) +
+  theme_minimal()
+
+
+## 2.7. RNA vs Protein Regression Plot
+
+ggplot(ec_multi, aes(logFC_rna, logFC_protein)) +
+  geom_point() +
+  geom_smooth(method = "lm") +
+  theme_minimal()
+  
+# EC Regression Plot
+```{r, echo=FALSE}
+# This converts your local image into a Base64 string and displays it
+# No external path will be needed after the HTML is generated
+img_data4 <- knitr::image_uri("/Users/mirandapestrofa/Downloads/MultimodalAnalysisAD/MultimodalFiles/RegressionPlot_EC.png")
+```
+<img src="`r img_data4`" style="width:70%; display:block; margin:auto;" /> 
+
+
+ggplot(hip_multi, aes(logFC_rna, logFC_protein)) +
+  geom_point() +
+  geom_smooth(method = "lm") +
+  theme_minimal()
+
+# HIP Regression Plot  
+```{r, echo=FALSE}
+# This converts your local image into a Base64 string and displays it
+# No external path will be needed after the HTML is generated
+img_data5 <- knitr::image_uri("/Users/mirandapestrofa/Downloads/MultimodalAnalysisAD/MultimodalFiles/RegressionPlot_HIP.png")
+```
+<img src="`r img_data5`" style="width:70%; display:block; margin:auto;" />
+
+## 2.8. Combined Quadrant and Concordance Plots
+
+# Reload required packages
+library(ggplot2)
+library(dplyr)
+library(ggrepel)
+library(gridExtra)
+
+# Define quadrant Categories
+ec_multi$quadrant <- case_when(
+  ec_multi$logFC_rna > 0 & ec_multi$logFC_protein > 0 ~ "Up-Up",
+  ec_multi$logFC_rna < 0 & ec_multi$logFC_protein < 0 ~ "Down-Down",
+  ec_multi$logFC_rna > 0 & ec_multi$logFC_protein < 0 ~ "RNA↑ Protein↓",
+  ec_multi$logFC_rna < 0 & ec_multi$logFC_protein > 0 ~ "RNA↓ Protein↑"
+)
+
+
+hip_multi$quadrant <- case_when(
+  hip_multi$logFC_rna > 0 & hip_multi$logFC_protein > 0 ~ "Up-Up",
+  hip_multi$logFC_rna < 0 & hip_multi$logFC_protein < 0 ~ "Down-Down",
+  hip_multi$logFC_rna > 0 & hip_multi$logFC_protein < 0 ~ "RNA↑ Protein↓",
+  hip_multi$logFC_rna < 0 & hip_multi$logFC_protein > 0 ~ "RNA↓ Protein↑"
+)
+
+# Ensure Concordance column exists
+ec_multi$concordance <- ifelse(
+  sign(ec_multi$logFC_rna) == sign(ec_multi$logFC_protein),
+  "Concordant",
+  "Discordant"
+)
+
+hip_multi$concordance <- ifelse(
+  sign(hip_multi$logFC_rna) == sign(hip_multi$logFC_protein),
+  "Concordant",
+  "Discordant"
+)
+
+# Create Quadrant plot with annotated gene labels
+#EC plot
+p1 <- ggplot(ec_multi, aes(x = logFC_rna, y = logFC_protein)) +
+
+  # points colored by quadrant
+  geom_point(aes(color = quadrant), size = 2.5, alpha = 0.85) +
+
+  # zero reference lines
+  geom_vline(xintercept = 0, linetype = "dashed", linewidth = 0.4) +
+  geom_hline(yintercept = 0, linetype = "dashed", linewidth = 0.4) +
+
+  # label ONLY your overlapping genes
+  geom_text_repel(
+    data = ec_multi %>% filter(!is.na(SYMBOL)),
+    aes(label = ifelse(SYMBOL %in% ec_multi$SYMBOL[1:6], SYMBOL, "")),
+    size = 3,
+    max.overlaps = Inf,
+    show.legend = FALSE
+  ) +
+
+  theme_minimal(base_size = 14) +
+
+  labs(
+    title = "EC: RNA–Protein Quadrant Structure (AD vs Control)",
+    x = "RNA logFC",
+    y = "Protein logFC",
+    color = "Quadrant"
+  )
+
+#HIP plot
+p1 <- ggplot(hip_multi, aes(x = logFC_rna, y = logFC_protein)) +
+
+  # points colored by quadrant
+  geom_point(aes(color = quadrant), size = 2.5, alpha = 0.85) +
+
+  # zero reference lines
+  geom_vline(xintercept = 0, linetype = "dashed", linewidth = 0.4) +
+  geom_hline(yintercept = 0, linetype = "dashed", linewidth = 0.4) +
+
+  # label ONLY your overlapping genes
+  geom_text_repel(
+    data = hip_multi %>% filter(!is.na(SYMBOL)),
+    aes(label = ifelse(SYMBOL %in% ec_multi$SYMBOL[1:6], SYMBOL, "")),
+    size = 3,
+    max.overlaps = Inf,
+    show.legend = FALSE
+  ) +
+
+  theme_minimal(base_size = 14) +
+
+  labs(
+    title = "HIP: RNA–Protein Quadrant Structure (AD vs Control)",
+    x = "RNA logFC",
+    y = "Protein logFC",
+    color = "Quadrant"
+  )
+
+#Ensure proper labeling
+overlap_genes <- ec_multi$SYMBOL
+
+overlap_genes <- hip_multi$SYMBOL
+
+geom_text_repel(
+  data = ec_multi %>% filter(SYMBOL %in% overlap_genes),
+  aes(label = SYMBOL),
+  size = 3
+)
+
+geom_text_repel(
+  data = hip_multi %>% filter(SYMBOL %in% overlap_genes),
+  aes(label = SYMBOL),
+  size = 3
+)
+
+#Create Concordance Bar Plot
+#EC plot
+p2 <- ggplot(ec_multi, aes(x = concordance)) +
+  geom_bar(fill = "steelblue") +
+  theme_minimal(base_size = 14) +
+  labs(
+    title = "EC RNA–Protein Concordance",
+    x = "",
+    y = "Gene count"
+  )
+
+#HIP plot
+p2 <- ggplot(hip_multi, aes(x = concordance)) +
+  geom_bar(fill = "steelblue") +
+  theme_minimal(base_size = 14) +
+  labs(
+    title = "HIP RNA–Protein Concordance",
+    x = "",
+    y = "Gene count"
+  )
+
+#Combine into one figure
+grid.arrange(p1, p2, ncol = 2)
+
+
+#EC combined plot
+```{r, echo=FALSE}
+# This converts your local image into a Base64 string and displays it
+# No external path will be needed after the HTML is generated
+img_data6 <- knitr::image_uri("/Users/mirandapestrofa/Downloads/MultimodalAnalysisAD/MultimodalFiles/CombinedECplot_QUADandConcor.png")
+```
+<img src="`r img_data6`" style="width:70%; display:block; margin:auto;" />
+
+#HIP combined plot
+```{r, echo=FALSE}
+# This converts your local image into a Base64 string and displays it
+# No external path will be needed after the HTML is generated
+img_data7 <- knitr::image_uri("/Users/mirandapestrofa/Downloads/MultimodalAnalysisAD/MultimodalFiles/CombinedHIPplot_QUADandConcor.png")
+```
+<img src="`r img_data7`" style="width:70%; display:block; margin:auto;" />
